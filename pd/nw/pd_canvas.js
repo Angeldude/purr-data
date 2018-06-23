@@ -117,7 +117,7 @@ function nw_window_focus_callback(name) {
 
 function nw_window_blur_callback(name) {
     // Fake a mouseup event to keep from getting a dangling selection box
-    if (canvas_events.get_state === "normal") {
+    if (canvas_events.get_state() === "normal") {
         pdgui.pdsend(name, "mouseup_fake");
     }
 }
@@ -450,7 +450,8 @@ var canvas_events = (function() {
                     ty = minv.b * dx + minv.d * dy;
                 var obj = scalar_draggables[draggable_elem.id];
                 pdgui.pdsend(obj.cid, "scalar_event", obj.scalar_sym,
-                    obj.drawcommand_sym, obj.event_name, dx, dy, tx, ty);
+                    obj.drawcommand_sym, obj.array_sym, obj.index,
+                    obj.event_name, dx, dy, tx, ty);
                 last_draggable_x = new_x;
                 last_draggable_y = new_y;
             },
@@ -963,12 +964,14 @@ var canvas_events = (function() {
             last_search_term = "";
         },
         add_scalar_draggable: function(cid, tag, scalar_sym, drawcommand_sym,
-            event_name) {
+            event_name, array_sym, index) {
             scalar_draggables[tag] = {
                 cid: cid,
                 scalar_sym: scalar_sym,
                 drawcommand_sym: drawcommand_sym,
-                event_name: event_name
+                event_name: event_name,
+                array_sym: array_sym,
+                index: index
             };
         },
         remove_scalar_draggable: function(id) {
@@ -1030,9 +1033,11 @@ function register_window_id(cid, attr_array) {
     // For now, there is no way for the cord inspector to be turned on by
     // default. But if this changes we need to set its menu item checkbox
     // accordingly here
-    //set_cord_inspector_checkbox();
+    // set_cord_inspector_checkbox();
 
-    // One final kludge-- because window creation is asyncronous, we may
+    // Set scroll bars
+    pdgui.canvas_set_scrollbars(cid, !attr_array.hide_scroll);
+    // One final kludge-- because window creation is asynchronous, we may
     // have gotten a dirty flag before the window was created. In that case
     // we check the title_queue to see if our title now contains an asterisk
     // (which is the visual cue for "dirty")

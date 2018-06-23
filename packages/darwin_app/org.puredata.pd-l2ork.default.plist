@@ -73,11 +73,11 @@
 	<key>loadlib33</key>
 	<string>pdp</string>
 	<key>loadlib34</key>
-	<string>hexloader</string>
-	<key>loadlib35</key>
 	<string>disis</string>
-	<key>loadlib36</key>
+	<key>loadlib35</key>
 	<string>lyonpotpourri</string>
+	<key>loadlib36</key>
+	<string>pdlua</string>
 	<key>nloadlib</key>
 	<string>36</string>
 	<key>path1</key>

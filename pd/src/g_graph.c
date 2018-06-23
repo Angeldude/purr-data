@@ -311,11 +311,11 @@ void glist_grab(t_glist *x, t_gobj *y, t_glistmotionfn motionfn,
 t_canvas *glist_getcanvas(t_glist *x)
 {
     //fprintf(stderr,"glist_getcanvas\n");
-    while (x->gl_owner && !x->gl_havewindow && x->gl_isgraph &&
-        gobj_shouldvis(&x->gl_gobj, x->gl_owner))
+    while (x->gl_owner && !x->gl_havewindow && x->gl_isgraph)
     {
-            //fprintf(stderr,"x=%lx x->gl_owner=%d x->gl_havewindow=%d x->gl_isgraph=%d gobj_shouldvis=%d\n", 
-            //    x, (x->gl_owner ? 1:0), x->gl_havewindow, x->gl_isgraph, 
+            //fprintf(stderr,"x=%lx x->gl_owner=%d x->gl_havewindow=%d "
+            //               "x->gl_isgraph=%d gobj_shouldvis=%d\n", 
+            //    x, (x->gl_owner ? 1:0), x->gl_havewindow, x->gl_isgraph,
             //    gobj_shouldvis(&x->gl_gobj, x->gl_owner));
             x = x->gl_owner;
             //fprintf(stderr,"+\n");
@@ -934,11 +934,13 @@ static void graph_vis(t_gobj *gr, t_glist *parent_glist, int vis)
     {
         if (vis && gobj_shouldvis(gr, parent_glist))
         {
-            gui_vmess("gui_text_draw_border", "xssiiiii",
+            gui_vmess("gui_text_draw_border", "xssiii",
                 glist_getcanvas(x->gl_owner),
                 tag,
                 "none",
-                0, x1, y1, x2, y2);
+                0,
+                x2 - x1,
+                y2 - y1);
             glist_noselect(x->gl_owner);
             gui_vmess("gui_graph_fill_border", "xsi",
                 glist_getcanvas(x->gl_owner),
@@ -960,15 +962,19 @@ static void graph_vis(t_gobj *gr, t_glist *parent_glist, int vis)
         t_gobj *g;
         t_symbol *arrayname;
             /* draw a rectangle around the graph */
-
+        char *ylabelanchor =
+            (x->gl_ylabelx > 0.5*(x->gl_x1 + x->gl_x2) ? "w" : "e");
+        char *xlabelanchor =
+            (x->gl_xlabely > 0.5*(x->gl_y1 + x->gl_y2) ? "s" : "n");
         char tagbuf[MAXPDSTRING];
         sprintf(tagbuf, "%sR", tag);
-
-        gui_vmess("gui_text_draw_border", "xssiiiii",
+        gui_vmess("gui_text_draw_border", "xssiii",
             glist_getcanvas(x->gl_owner),
             tag,
             "none",
-            0, x1, y1, x2, y2);
+            0,
+            x2 - x1,
+            y2 - y1);
             /* write garrays' names along the top */
         for (i = 0, g = x->gl_list; g; g = g->g_next, i++)
         {
@@ -1071,7 +1077,7 @@ static void graph_vis(t_gobj *gr, t_glist *parent_glist, int vis)
             /* draw x labels */
         for (i = 0; i < x->gl_nxlabels; i++)
         {
-            gui_vmess("gui_graph_tick_label", "xsiissisii",
+            gui_vmess("gui_graph_tick_label", "xsiissisiis",
                 glist_getcanvas(x),
                 tag,
                 (int)glist_xtopixels(x, atof(x->gl_xlabel[i]->s_name)),
@@ -1081,13 +1087,14 @@ static void graph_vis(t_gobj *gr, t_glist *parent_glist, int vis)
                 sys_hostfontsize(glist_getfont(x)),
                 sys_fontweight,
                 x1,
-                y1);
+                y1,
+                xlabelanchor);
         }
 
             /* draw y labels */
         for (i = 0; i < x->gl_nylabels; i++)
         {
-            gui_vmess("gui_graph_tick_label", "xsiissisii",
+            gui_vmess("gui_graph_tick_label", "xsiissisiis",
                 glist_getcanvas(x),
                 tag,
                 (int)glist_xtopixels(x, x->gl_ylabelx),
@@ -1097,7 +1104,8 @@ static void graph_vis(t_gobj *gr, t_glist *parent_glist, int vis)
                 sys_hostfontsize(glist_getfont(x)),
                 sys_fontweight,
                 x1,
-                y1);
+                y1,
+                ylabelanchor);
         }
 
             /* draw contents of graph as glist */
@@ -1239,7 +1247,6 @@ static void graph_getrect(t_gobj *z, t_glist *glist,
         int hadwindow;
         t_gobj *g;
         int x21, y21, x22, y22;
-
         graph_graphrect(z, glist, &x1, &y1, &x2, &y2);
         //fprintf(stderr,"%d %d %d %d\n", x1, y1, x2, y2);
 
@@ -1261,7 +1268,6 @@ static void graph_getrect(t_gobj *z, t_glist *glist,
             hadwindow = x->gl_havewindow;
             x->gl_havewindow = 0;
             for (g = x->gl_list; g; g = g->g_next)
-                if (gobj_shouldvis(g, x))
             {
                     /* don't do this for arrays, just let them hang outside the
                     box. */
@@ -1285,6 +1291,7 @@ static void graph_getrect(t_gobj *z, t_glist *glist,
         graph_checkgop_rect(z, glist, &x1, &y1, &x2, &y2);
 
         /* fix visibility of edge items for garrays */
+        /*
         int has_garray = 0;
         for (g = x->gl_list; g; g = g->g_next)
         {
@@ -1293,7 +1300,7 @@ static void graph_getrect(t_gobj *z, t_glist *glist,
                 has_garray = 1;
             }
         }
-        /*if (has_garray) {
+        if (has_garray) {
             x1 -= 1;
             y1 -= 2;
             //x2 += 1;
@@ -1430,7 +1437,7 @@ static void graph_select(t_gobj *z, t_glist *glist, int state)
         }
         if (glist_isvisible(glist) &&
                 (glist_istoplevel(glist) ||
-                 gobj_shouldvis(x, glist)))
+                 gobj_shouldvis(z, glist)))
         {
             if (state)
                 gui_vmess("gui_gobj_select", "xs",
@@ -1499,48 +1506,6 @@ static void graph_delete(t_gobj *z, t_glist *glist)
     }
     if (glist_istoplevel(glist) && glist_isvisible(glist))
         canvas_getscroll(glist);
-}
-
-static t_float graph_lastxpix, graph_lastypix;
-
-static void graph_motion(void *z, t_floatarg dx, t_floatarg dy)
-{
-    t_glist *x = (t_glist *)z;
-    t_float newxpix = graph_lastxpix + dx, newypix = graph_lastypix + dy;
-    t_garray *a = (t_garray *)(x->gl_list);
-    int oldx = 0.5 + glist_pixelstox(x, graph_lastxpix);
-    int newx = 0.5 + glist_pixelstox(x, newxpix);
-    t_word *vec;
-    int nelem, i;
-    t_float oldy = glist_pixelstoy(x, graph_lastypix);
-    t_float newy = glist_pixelstoy(x, newypix);
-    graph_lastxpix = newxpix;
-    graph_lastypix = newypix;
-        /* verify that the array is OK */
-    if (!a || pd_class((t_pd *)a) != garray_class)
-        return;
-    if (!garray_getfloatwords(a, &nelem, &vec))
-        return;
-    if (oldx < 0) oldx = 0;
-    if (oldx >= nelem)
-        oldx = nelem - 1;
-    if (newx < 0) newx = 0;
-    if (newx >= nelem)
-        newx = nelem - 1;
-    if (oldx < newx - 1)
-    {
-        for (i = oldx + 1; i <= newx; i++)
-            vec[i].w_float = newy + (oldy - newy) *
-                ((t_float)(newx - i))/(t_float)(newx - oldx);
-    }
-    else if (oldx > newx + 1)
-    {
-        for (i = oldx - 1; i >= newx; i--)
-            vec[i].w_float = newy + (oldy - newy) *
-                ((t_float)(newx - i))/(t_float)(newx - oldx);
-    }
-    else vec[newx].w_float = newy;
-    garray_redraw(a);
 }
 
 extern t_class *my_canvas_class; // for ignoring runtime clicks

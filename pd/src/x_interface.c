@@ -56,39 +56,92 @@ static void *print_new(t_symbol *sel, int argc, t_atom *argv)
 
 static void print_bang(t_print *x)
 {
-    post("%s%sbang", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""));
+    if (sys_nogui)
+        post("%s%sbang", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""));
+    else
+    {
+        gui_start_vmess("gui_print", "xs", x, x->x_sym->s_name);
+        gui_start_array();
+        gui_s(s_bang.s_name);
+        gui_end_array();
+        gui_end_vmess();
+    }
 }
 
 static void print_pointer(t_print *x, t_gpointer *gp)
 {
-    post("%s%s(gpointer)", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""));
+    if (sys_nogui)
+        post("%s%s(gpointer)", x->x_sym->s_name,
+            (*x->x_sym->s_name ? ": " : ""));
+    else
+    {
+        gui_start_vmess("gui_print", "xs", x, x->x_sym->s_name);
+        gui_start_array();
+        gui_s("(gpointer)");
+        gui_end_array();
+        gui_end_vmess();
+    }
 }
 
-static void print_float(t_print *x, t_float f)
+static void print_float(t_print *x, t_floatarg f)
 {
-    post("%s%s%g", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""), f);
+    if (sys_nogui)
+        post("%s%s%g", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""), f);
+    else
+    {
+        gui_start_vmess("gui_print", "xs", x, x->x_sym->s_name);
+        gui_start_array();
+        gui_f(f);
+        gui_end_array();
+        gui_end_vmess();
+    }
 }
 
-static void print_list(t_print *x, t_symbol *s, int argc, t_atom *argv)
+static void print_symbol(t_print *x, t_symbol *s)
 {
-    if (argc && argv->a_type != A_SYMBOL)
-        startpost("%s%s%g", x->x_sym->s_name,
-            (*x->x_sym->s_name ? ": " : ""),
-            atom_getfloatarg(0, argc--, argv++));
-    else startpost("%s%s%s", x->x_sym->s_name,
-        (*x->x_sym->s_name ? ": " : ""),
-        (argc > 1 ? s_list.s_name : (argc == 1 ? s_symbol.s_name :
-            s_bang.s_name)));
-    postatom(argc, argv);
-    endpost();
+    if (sys_nogui)
+        post("%s%s%s", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""),
+            s->s_name);
+    else
+    {
+        gui_start_vmess("gui_print", "xs", x, x->x_sym->s_name);
+        gui_start_array();
+        gui_s(s_symbol.s_name);
+        gui_s(s->s_name);
+        gui_end_array();
+        gui_end_vmess();
+    }
 }
 
 static void print_anything(t_print *x, t_symbol *s, int argc, t_atom *argv)
 {
-    startpost("%s%s%s", x->x_sym->s_name, (*x->x_sym->s_name ? ": " : ""),
-        s->s_name);
-    postatom(argc, argv);
-    endpost();
+    char buf[MAXPDSTRING];
+    t_atom at;
+    if (sys_nogui)
+    {
+        startpost("%s%s", x->x_sym->s_name, (*x->x_sym->s_name ? ":" : ""));
+        if (s && (s != &s_list || (argc && argv->a_type != A_FLOAT)))
+        {
+            SETSYMBOL(&at, s);
+            postatom(1, &at);
+        }
+        postatom(argc, argv);
+        endpost();
+    }
+    else
+    {
+        gui_start_vmess("gui_print", "xs", x, x->x_sym->s_name);
+        gui_start_array();
+        if (s && (s != &s_list || (argc && argv->a_type != A_FLOAT)))
+            gui_s(s->s_name);
+        for(; argc; argv++, argc--)
+        {
+            atom_string(argv, buf, MAXPDSTRING);
+            gui_s(buf);
+        }
+        gui_end_array();
+        gui_end_vmess();
+    }
 }
 
 static void print_setup(void)
@@ -98,7 +151,7 @@ static void print_setup(void)
     class_addbang(print_class, print_bang);
     class_addfloat(print_class, print_float);
     class_addpointer(print_class, print_pointer);
-    class_addlist(print_class, print_list);
+    class_addsymbol(print_class, print_symbol);
     class_addanything(print_class, print_anything);
 }
 
@@ -215,10 +268,16 @@ void canvasinfo_args(t_canvasinfo *x, t_symbol *s, int argc, t_atom *argv)
         }
         else
         {
-            /* For "boxtext" have to escape semi, comma, dollar, and
-               dollsym atoms, which is what binbuf_addbinbuf does.
-               Otherwise the user could pass them around or save them
-               unescaped, which might cause trouble. */
+            /* For "boxtext" we have to convert semi, comma, dollar, and
+               dollsym atoms to symbol atoms. Otherwise we could end up
+               outputting a message containing stray semis/commas/etc. which
+               might cause trouble.
+
+               We sent the atoms through binbuf_addbinbuf which does the
+               conversion to symbols for us. That way the user will get
+               expected output-- e.g., special characters will be properly
+               escaped when printing.
+            */
             t_binbuf *escaped = binbuf_new();
             binbuf_addbinbuf(escaped, b);
             n = binbuf_getnatom(escaped);
@@ -833,18 +892,55 @@ void pdinfo_gui(t_pdinfo *x, t_symbol *s, int argc, t_atom *argv)
     info_out((t_text *)x, s, 1, at);
 }
 
-/* note: this might be wrong.  Not sure whether "libdir" means
-   something like /usr/lib/pd or the path where all the libdir externals
-   live-- i.e., /usr/lib/pd/extra */
+/* directory where extra and doc are found. Might also want to add
+   another method to return a list of all paths searched for libs-- i.e.,
+   "extrapath". */
 void pdinfo_libdir(t_pdinfo *x, t_symbol *s, int argc, t_atom *argv)
 {
     t_atom at[1];
-    t_symbol *nsym;
-    t_namelist *nl = pd_extrapath;
-    while (nl->nl_next)
-        nl = nl->nl_next;
-    nsym = gensym(nl->nl_string);
-    SETSYMBOL(at, nsym);
+    SETSYMBOL(at, sys_libdir);
+    info_out((t_text *)x, s, 1, at);
+}
+
+t_symbol* pd_getplatform(void)
+{
+#ifdef __APPLE__
+    return gensym("darwin");
+#endif
+#ifdef __FreeBSD__
+    return gensym("freebsd");
+#endif
+#ifdef _WIN32
+    return gensym("win32");
+#endif
+#ifdef __linux__
+    return gensym("linux");
+#endif
+    /* don't know the platform... */
+    return gensym("unknown");
+}
+
+void pdinfo_platform(t_pdinfo *x, t_symbol *s, int argc, t_atom *argv)
+{
+    t_atom at[1];
+    SETSYMBOL(at, pd_getplatform());
+    info_out((t_text *)x, s, 1, at);
+}
+
+void pdinfo_arch(t_pdinfo *x, t_symbol *s, int argc, t_atom *argv)
+{
+    t_atom at[1];
+    t_symbol *a = gensym("unknown");
+#ifdef __i386__
+    a = gensym("ia32");
+#endif
+#ifdef __x86_64__
+    a = gensym("x64");
+#endif
+#ifdef __arm__
+    a = gensym("arm");
+#endif
+    SETSYMBOL(at, a);
     info_out((t_text *)x, s, 1, at);
 }
 
@@ -887,6 +983,8 @@ void pdinfo_setup(void)
         sizeof(t_pdinfo),
         CLASS_DEFAULT, 0);
 
+    class_addmethod(pdinfo_class, (t_method)pdinfo_arch,
+        gensym("arch"), A_GIMME, 0);
     class_addmethod(pdinfo_class, (t_method)pdinfo_audio_api,
         gensym("audio-api"), A_DEFFLOAT, 0);
     class_addmethod(pdinfo_class, (t_method)pdinfo_audio_apilist,
@@ -935,6 +1033,8 @@ void pdinfo_setup(void)
         gensym("midi-outdev"), A_GIMME, 0);
     class_addmethod(pdinfo_class, (t_method)pdinfo_midi_listdevs,
         gensym("midi-outdevlist"), A_GIMME, 0);
+    class_addmethod(pdinfo_class, (t_method)pdinfo_platform,
+        gensym("platform"), A_GIMME, 0);
     class_addmethod(pdinfo_class, (t_method)pdinfo_audio_samplerate,
         gensym("samplerate"), A_GIMME, 0);
     class_addmethod(pdinfo_class, (t_method)pdinfo_version,

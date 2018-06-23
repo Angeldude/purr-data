@@ -284,10 +284,14 @@ void glob_forward_files_from_secondary_instance(void)
     gui_end_vmess();
 }
 
+extern void glob_recent_files(t_pd *dummy);
+extern int sys_browser_doc, sys_browser_path, sys_browser_init;
+
 /* this is called from main() in s_entry.c */
 int sys_main(int argc, char **argv)
 {
     int i, noprefs;
+    t_namelist *nl;
     sys_externalschedlib = 0;
     sys_extraflags = 0;
     sys_gui_preset = gensym("default");
@@ -295,6 +299,7 @@ int sys_main(int argc, char **argv)
     fprintf(stderr, "Pd-L2Ork: COMPILED FOR DEBUGGING\n");
 #endif
     pd_init();                                  /* start the message system */
+    logpost(NULL, 2, "PD_FLOATSIZE = %lu bits", sizeof(t_float)*8);
     sys_findprogdir(argv[0]);                   /* set sys_progname, guipath */
     for (i = noprefs = 0; i < argc; i++)        /* prescan args for noprefs */
         if (!strcmp(argv[i], "-noprefs"))
@@ -323,6 +328,17 @@ int sys_main(int argc, char **argv)
     gui_vmess("gui_set_gui_preset", "s", sys_gui_preset->s_name);
         /* send the recent files list */
     glob_recent_files(0);
+        /* AG: send the browser config; this must come *after* gui_set_lib_dir
+           so that the lib_dir is available when help indexing starts */
+    gui_start_vmess("gui_set_browser_config", "iii",
+                    sys_browser_doc, sys_browser_path, sys_browser_init);
+    gui_start_array();
+    for (nl = sys_helppath; nl; nl = nl->nl_next)
+    {
+        gui_s(nl->nl_string);
+    }
+    gui_end_array();
+    gui_end_vmess();
 
     if (sys_externalschedlib)
         return (sys_run_scheduler(sys_externalschedlibname,
@@ -485,7 +501,7 @@ static int sys_getmultidevchannels(int n, int *devlist)
 void sys_findprogdir(char *progname)
 {
     char *execdir = pd_getdirname()->s_name, *lastslash;
-    char sbuf[FILENAME_MAX], sbuf2[FILENAME_MAX];
+    char sbuf[FILENAME_MAX], sbuf2[FILENAME_MAX], appbuf[FILENAME_MAX];
     strncpy(sbuf, execdir, FILENAME_MAX-1);
 #ifndef MSW
     struct stat statbuf;
@@ -551,12 +567,20 @@ void sys_findprogdir(char *progname)
     else
     {
             /* simple layout: lib dir is the parent */
-        sys_libdir = gensym(sbuf);
             /* gui lives in .../bin */
         strncpy(sbuf2, sbuf, FILENAME_MAX-30);
+        strncpy(appbuf, sbuf, FILENAME_MAX-30);
         sbuf[FILENAME_MAX-30] = 0;
+        sys_libdir = gensym(sbuf);
         strcat(sbuf2, "/bin");
-        sys_guidir = gensym(sbuf2);
+        /* special case-- with the OSX app bundle the guidir is actually
+           in app.nw instead of app.nw/bin. So we check for a package.json
+           there and then set it accordingly. */
+        strcat(appbuf, "/package.json");
+        if (stat(appbuf, &statbuf) >= 0)
+            sys_guidir = gensym(sbuf);
+        else
+            sys_guidir = gensym(sbuf2);
     }
 #endif
 }

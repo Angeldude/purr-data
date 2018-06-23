@@ -14,7 +14,7 @@ extern "C" {
 #define PD_MINOR_VERSION 48
 #define PD_BUGFIX_VERSION 0
 #define PD_TEST_VERSION ""
-#define PD_L2ORK_VERSION "2.2.4"
+#define PD_L2ORK_VERSION "2.5.1"
 #define PDL2ORK
 extern int pd_compatibilitylevel;   /* e.g., 43 for pd 0.43 compatibility */
 
@@ -89,9 +89,19 @@ typedef unsigned __int64  uint64_t;
 #if !defined(PD_LONGINTTYPE)
 #define PD_LONGINTTYPE long
 #endif
-#if !defined(PD_FLOATTYPE)
-#define PD_FLOATTYPE float
+
+#if !defined(PD_FLOATSIZE)
+#define PD_FLOATSIZE 32   /* 32 for single precision or 64 for double precision */
 #endif
+
+#if PD_FLOATSIZE == 32
+#define PD_FLOATTYPE float
+#elif PD_FLOATSIZE == 64
+#define PD_FLOATTYPE double
+#else
+#error invalid PD_FLOATPRECISION: must be 32 or 64
+#endif
+
 typedef PD_LONGINTTYPE t_int;       /* pointer-size integer */
 typedef PD_FLOATTYPE t_float;       /* a float type at most the same size */
 typedef PD_FLOATTYPE t_floatarg;    /* float type for function calls */
@@ -356,6 +366,7 @@ EXTERN void binbuf_restore(t_binbuf *x, int argc, t_atom *argv);
 EXTERN void binbuf_print(t_binbuf *x);
 EXTERN int binbuf_getnatom(t_binbuf *x);
 EXTERN t_atom *binbuf_getvec(t_binbuf *x);
+EXTERN int binbuf_resize(t_binbuf *x, int newsize);
 EXTERN void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv);
 EXTERN int binbuf_read(t_binbuf *b, char *filename, char *dirname,
     int crflag);
@@ -612,7 +623,7 @@ EXTERN void mayer_ifft(int n, t_sample *real, t_sample *imag);
 EXTERN void mayer_realfft(int n, t_sample *real);
 EXTERN void mayer_realifft(int n, t_sample *real);
 
-EXTERN float *cos_table;
+EXTERN t_float *cos_table;
 #define LOGCOSTABSIZE 9
 #define COSTABSIZE (1<<LOGCOSTABSIZE)
 
@@ -754,17 +765,73 @@ defined, there is a "te_xpix" field in objects, not a "te_xpos" as before: */
 
 #define PD_USE_TE_XPIX
 
-#if defined(__i386__) || defined(__x86_64__)
-/* a test for NANs and denormals.  Should only be necessary on i386. */
-#define PD_BADFLOAT(f) ((((*(unsigned int*)&(f))&0x7f800000)==0) || \
-    (((*(unsigned int*)&(f))&0x7f800000)==0x7f800000))
-/* more stringent test: anything not between 1e-19 and 1e19 in absolute val */
-#define PD_BIGORSMALL(f) ((((*(unsigned int*)&(f))&0x60000000)==0) || \
-    (((*(unsigned int*)&(f))&0x60000000)==0x60000000))
-#else
+#if defined(__i386__) || defined(__x86_64__) // Type punning code:
+
+#if PD_FLOATSIZE == 32
+
+typedef  union
+{
+    t_float f;
+    uint32_t ui;
+}t_bigorsmall32; 
+
+/* Test strictly for NANs and infs */
+static inline int PD_BADFLOAT(t_float f)
+{
+    t_bigorsmall32 pun;
+    pun.f = f;
+    pun.ui &= 0x7f800000;
+    return((pun.ui == 0) | (pun.ui == 0x7f800000));
+}
+
+/* Test to find unusually large or small normal values, in
+   addition to denormals, NANs and infs:
+   abs(f) >= 2^65 or < 2^-63
+
+   This is useful for catching extreme values in, say, a filter,
+   then bashing to zero before ever calculating a denormal. */
+static inline int PD_BIGORSMALL(t_float f)
+{
+    t_bigorsmall32 pun;
+    pun.f = f;
+    return((pun.ui & 0x20000000) == ((pun.ui >> 1) & 0x20000000));
+}
+    
+#elif PD_FLOATSIZE == 64
+
+typedef  union
+{
+    t_float f;
+    uint32_t ui[2];
+}t_bigorsmall64; 
+
+/* Test for NANs and infs */
+static inline int PD_BADFLOAT(t_float f)
+{
+    t_bigorsmall64 pun;
+    pun.f = f;
+    pun.ui[1] &= 0x7ff00000;
+    return((pun.ui[1] == 0) | (pun.ui[1] == 0x7ff00000));
+}
+
+/* Test to find unusually large or small normal values, in
+   addition to denormals, NANs and infs:
+   abs(f) >= 2^513 or < 2^-511
+
+   This is useful for catching extreme values in, say, a filter,
+   then bashing to zero before ever calculating a denormal. */
+static inline int PD_BIGORSMALL(t_float f)
+{
+    t_bigorsmall64 pun;
+    pun.f = f;
+    return((pun.ui[1] & 0x20000000) == ((pun.ui[1] >> 1) & 0x20000000));
+}
+
+#endif // endif PD_FLOATSIZE
+#else   // if not defined(__i386__) || defined(__x86_64__)
 #define PD_BADFLOAT(f) 0
 #define PD_BIGORSMALL(f) 0
-#endif
+#endif // end if defined(__i386__) || defined(__x86_64__)
 
     /* get version number at run time */
 EXTERN void sys_getversion(int *major, int *minor, int *bugfix);

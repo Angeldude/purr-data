@@ -12,18 +12,16 @@ BUILDLAYOUT_DIR = $(cvs_root_dir)/packages
 include $(BUILDLAYOUT_DIR)/Makefile.buildlayout
 
 # if machine has dpkg-deb, build a Debian package
-#ifeq ($(shell test -x /usr/bin/dpkg-deb && echo YES),YES)
-#  PACKAGE_TYPE = deb
-#else
-#  PACKAGE_TYPE = tarbz2
-#endif
+ifeq ($(shell test -x /usr/bin/dpkg-deb && echo YES),YES)
+  PACKAGE_TYPE = deb
+else
+  PACKAGE_TYPE = tarbz2
+endif
 
 # for command-line UNIX versions, you need to install Pd into the same
 # directory as $(prefix) otherwise Pd won't be able to find extra, doc, etc.
 ifeq ($(PACKAGE_TYPE),deb)
   prefix = /usr
-  # generates the dependencies for all externals and pd itself
-  PACKAGE_DEPENDS := $(shell find $(DESTDIR) \( -name "*.pd_linux" -or -name pd-gui -or -wholename \*bin/pd \) -print0 | xargs -0 dpkg-shlibdeps -O | sed 's|shlibs:Depends=|, |' )
 else
   prefix = /usr/local
 endif
@@ -74,6 +72,12 @@ install:
 
 PACKAGE_NAME = pd-l2ork-$(PD_VERSION)-`uname -m`
 
+ifeq ($(LIGHT),yes)
+default = light
+else
+default = default
+endif
+
 package: $(PACKAGE_TYPE)
 
 
@@ -85,10 +89,12 @@ tarbz2: installer_settings installer_makefile installer_readme
 
 # Any special staging for the "Burrito Supreme" installer goes here.
 debstage: $(bindir)
+ifneq ($(LIGHT),yes)
 # add K12 mode
 	cp -rf ../../l2ork_addons/K12/ $(DESTDIR)$(libpddir)/extra/
 # add arduino library
 	cp -rf ../../externals/hardware/arduino $(DESTDIR)$(libpddir)/extra/
+endif
 # free desktop menu, mime, and icon support
 # perhaps the icons should go in /usr/share/pixmaps like 'scribus'
 	install -d $(DESTDIR)/usr/share/icons/hicolor/128x128/apps
@@ -133,7 +139,7 @@ debstage: $(bindir)
 	install -d $(DESTDIR)/etc/pd-l2ork
 	ln -s -f $(libpddir)/default.settings \
 		$(DESTDIR)/etc/pd-l2ork/default.settings
-	install -p $(packages_src)/linux_make/default.settings $(DESTDIR)$(libpddir)
+	install -p $(packages_src)/linux_make/$(default).settings $(DESTDIR)$(libpddir)/default.settings
 # app window icon
 	#install -p $(packages_src)/linux_make/pd-l2ork.gif $(DESTDIR)$(libpddir)
 # emacs mode for .pd files
@@ -143,7 +149,9 @@ debstage: $(bindir)
 # Pd-related scripts
 	#install -p $(scripts_src)/pd-diff $(DESTDIR)$(bindir)
 
+ifeq ($(PACKAGE_TYPE),deb)
 deb: DEB_BUILD_ARCH := $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+endif
 deb: DEB_PD_VERSION := $(shell echo $(PD_VERSION) | sed 's|\(.*\)-l2ork-\(.*\)|\1-\2|')
 deb: debstage
 # delete these since they are provided by the 'puredata-utils' and 'cyclist' package
@@ -160,6 +168,9 @@ deb: debstage
 	cp $(packages_src)/linux_make/debian/control $(DESTDIR)/DEBIAN
 	cp $(packages_src)/linux_make/debian/pd-l2ork.postrm $(DESTDIR)/DEBIAN
 	cp $(packages_src)/linux_make/debian/pd-l2ork.postinst $(DESTDIR)/DEBIAN
+# generate the dependencies for all externals and pd itself
+	$(eval PACKAGE_DEPENDS := $(shell find $(DESTDIR) \( -name "*.pd_linux" -or -name pd-gui -or -wholename \*bin/pd \) -print0 | xargs -0 dpkg-shlibdeps -O | sed 's|shlibs:Depends=|, |' ))
+
 # set build architecture and version for the package
 	sed -i 's|^Version:.*|Version: $(DEB_PD_VERSION)|' \
 		$(DESTDIR)/DEBIAN/control
@@ -184,7 +195,7 @@ installer_readme:
 		$(INSTALLER_README_FILE)
 
 installer_settings:
-	install -p $(packages_src)/linux_make/default.settings $(DESTDIR)$(libpddir)
+	install -p $(packages_src)/linux_make/$(default).settings $(DESTDIR)$(libpddir)/default.settings
 	# app window icon
 	# install -p $(packages_src)/linux_make/pd-l2ork.gif $(DESTDIR)$(libpddir)
 #	install -d $(DESTDIR)/usr/share/icons/hicolor/128x128/apps
@@ -279,7 +290,7 @@ test_locations:
 	@echo "EXAMPLESDIR  $(examplesdir)"
 	@echo --------------------------------------------------
 #	@echo "PACKAGE_DEPENDS 	$(PACKAGE_DEPENDS)"
-#	@echo --------------------------------------------------
+	@echo --------------------------------------------------
 	autoconf --version
 	@echo --------------------------------------------------
 	make --version

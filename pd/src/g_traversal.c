@@ -187,7 +187,6 @@ t_binbuf *pointertobinbuf(t_pd *x, t_gpointer *gp, t_symbol *s,
     t_symbol *templatesym = gpointer_gettemplatesym(gp), *arraytype;
     t_template *template;
     int onset, type;
-    t_binbuf *b;
     t_gstub *gs = gp->gp_stub;
     t_word *vec;
     if (!templatesym)
@@ -661,6 +660,8 @@ static void set_set(t_set *x, t_symbol *templatesym, t_symbol *field)
 }
 
 extern void scalar_configure(t_scalar *x, t_glist *owner);
+extern void array_configure(t_scalar *x, t_glist *owner, t_array *a,
+    t_word *data);
 
 static void set_bang(t_set *x)
 {
@@ -706,10 +707,12 @@ static void set_bang(t_set *x)
     else
     {
         t_array *owner_array = gs->gs_un.gs_array;
-        while (owner_array->a_gp.gp_stub->gs_which == GP_ARRAY)
-            owner_array = owner_array->a_gp.gp_stub->gs_un.gs_array;
-        scalar_redraw((t_scalar *)(owner_array->a_gp.gp_un.gp_gobj),
-            owner_array->a_gp.gp_stub->gs_un.gs_glist);
+        t_array *top_array = owner_array;
+        while (top_array->a_gp.gp_stub->gs_which == GP_ARRAY)
+            top_array = top_array->a_gp.gp_stub->gs_un.gs_array;
+        array_configure((t_scalar *)(top_array->a_gp.gp_un.gp_gobj),
+            top_array->a_gp.gp_stub->gs_un.gs_glist, owner_array,
+            vec);
     }
 }
 
@@ -750,7 +753,7 @@ static void set_setup(void)
         A_SYMBOL, A_SYMBOL, 0); 
 }
 
-/* ---------------------- elem ----------------------------- */
+/* ---------------------- element ----------------------------- */
 
 static t_class *elem_class;
 

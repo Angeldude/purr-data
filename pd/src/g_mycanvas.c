@@ -28,7 +28,7 @@ void my_canvas_draw_new(t_my_canvas *x, t_glist *glist)
     sprintf(cbuf, "#%6.6x", x->x_gui.x_bcol);
 
     gui_vmess("gui_gobj_new", "xxsiii", canvas,
-        x, "iemgui", x1, y1, glist_istoplevel(canvas));
+        x, "iemgui", x1, y1, glist_istoplevel(glist));
     gui_vmess("gui_mycanvas_new", "xxsiiiiii", canvas,
         x, cbuf, x1, y1, x1+x->x_vis_w, y1+x->x_vis_h,
         x1+x->x_gui.x_w, y1+x->x_gui.x_h);
@@ -38,8 +38,6 @@ void my_canvas_draw_move(t_my_canvas *x, t_glist *glist)
 {
     t_canvas *canvas=glist_getcanvas(glist);
     if (!glist_isvisible(canvas)) return;
-    int x1=text_xpix(&x->x_gui.x_obj, glist);
-    int y1=text_ypix(&x->x_gui.x_obj, glist);
     iemgui_base_draw_move(&x->x_gui);
     gui_vmess("gui_mycanvas_coords", "xxiiii",
         canvas, x,

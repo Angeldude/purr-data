@@ -22,6 +22,8 @@
 #include <string.h>
 #include <stdarg.h>
 
+#define DOLLARALL -0x7fffffff /* sentinel value for "$@" dollar arg */
+
 /* escape characters for saving */
 static char* strnescape(char *dest, const char *src, size_t outlen)
 {
@@ -183,7 +185,7 @@ void binbuf_text(t_binbuf *x, char *text, size_t size)
             }
             while (textp != etext && bufp != ebuf && 
                 (slash || (*textp != ' ' && *textp != '\n' && *textp != '\r'
-                    && *textp != '\t' &&*textp != ',' && *textp != ';')));
+                    && *textp != '\t' && *textp != ',' && *textp != ';')));
             *bufp = 0;
 #if 0
             post("binbuf_text: buf %s, dollar=%d", buf, dollar);
@@ -202,7 +204,7 @@ void binbuf_text(t_binbuf *x, char *text, size_t size)
                     if(buf[2]==0) /* only expand A_DOLLAR $@ */
                     {
                         ap->a_type = A_DOLLAR;
-                        ap->a_w.w_symbol = gensym("@");
+                        ap->a_w.w_index = DOLLARALL;
                     } 
                     else /* there is no A_DOLLSYM $@ */
                     {
@@ -392,7 +394,7 @@ void binbuf_addbinbuf(t_binbuf *x, t_binbuf *y)
             break;
         case A_DOLLAR:
             //fprintf(stderr,"addbinbuf: dollar\n");
-            if(ap->a_w.w_symbol==gensym("@")){ /* JMZ: $@ expansion */
+            if(ap->a_w.w_index==DOLLARALL){ /* JMZ: $@ expansion */
                 SETSYMBOL(ap, gensym("$@"));
             } else {
                 sprintf(tbuf, "$%d", ap->a_w.w_index);
@@ -456,7 +458,7 @@ void binbuf_restore(t_binbuf *x, int argc, t_atom *argv)
             else if (!strcmp(str, "$@")) /* JMZ: $@ expansion */
             {
                 ap->a_type = A_DOLLAR;
-                ap->a_w.w_symbol = gensym("@");
+                ap->a_w.w_index = DOLLARALL;
             }
             else if ((str2 = strchr(str, '$')) && str2[1] >= '0'
                 && str2[1] <= '9')
@@ -547,7 +549,7 @@ int binbuf_resize(t_binbuf *x, int newsize)
     return (new != 0);
 }
 
-int canvas_getdollarzero( void);
+int canvas_getdollarzero(t_pd *x);
 
 /* JMZ:
  * s points to the first character after the $
@@ -600,7 +602,8 @@ int binbuf_expanddollsym(char*s, char*buf,t_atom dollar0, int ac, t_atom *av,
 
 /* LATER remove the dependence on the current canvas for $0; should be another
 argument. */
-t_symbol *binbuf_realizedollsym(t_symbol *s, int ac, t_atom *av, int tonew)
+static t_symbol *binbuf_dorealizedollsym(t_pd *target, t_symbol *s, int ac,
+    t_atom *av, int tonew)
 {
     char buf[MAXPDSTRING];
     char buf2[MAXPDSTRING];
@@ -608,7 +611,7 @@ t_symbol *binbuf_realizedollsym(t_symbol *s, int ac, t_atom *av, int tonew)
     char*substr;
     int next=0, i=MAXPDSTRING;
     t_atom dollarnull;
-    SETFLOAT(&dollarnull, canvas_getdollarzero());
+    SETFLOAT(&dollarnull, canvas_getdollarzero(target));
     while(i--)buf2[i]=0;
 
 #if 1
@@ -635,7 +638,7 @@ t_symbol *binbuf_realizedollsym(t_symbol *s, int ac, t_atom *av, int tonew)
         * JMZ: i am not sure what this means, so i might have broken it
         * it seems like that if "tonew" is set and the $arg cannot be expanded
         * (or the dollarsym is in reality a A_DOLLAR)
-        * 0 is returned from binbuf_realizedollsym
+        * 0 is returned from binbuf_dorealizedollsym
         * this happens, when expanding in a message-box, but does not happen
         * when the A_DOLLSYM is the name of a subpatch
         */
@@ -662,6 +665,11 @@ done:
     return (gensym(buf2));
 }
 
+t_symbol *binbuf_realizedollsym(t_symbol *s, int ac, t_atom *av, int tonew)
+{
+    return binbuf_dorealizedollsym(0, s, ac, av, tonew);
+}
+
 #define SMALLMSG 5
 #define HUGEMSG 1000
 #ifdef MSW
@@ -679,13 +687,28 @@ done:
 #define ATOMS_FREEA(x, n) (freebytes((x), (n) * sizeof(t_atom)))
 #endif
 
+t_pd *pd_mess_from_responder(t_pd *x);
+static void binbuf_error(t_pd *x, const char *fmt, ...)
+{
+    char buf[MAXPDSTRING];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, MAXPDSTRING-1, fmt, ap);
+    va_end(ap);
+    if (x)
+        pd_error(pd_mess_from_responder(x), buf);
+    else
+        error(buf);
+}
+
 void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
 {
     t_atom smallstack[SMALLMSG], *mstack, *msp;
     t_atom *at = x->b_vec;
     int ac = x->b_n;
     int nargs, maxnargs = 0;
-    int at_arg = 0;
+    /* initial target for referencing $0 in msg boxes after a semicolon */
+    t_pd * init_target = target;
 
     //first we need to check if the list of arguments has $@
     //fprintf(stderr,"=========\nbinbuf_eval argc:%d ac:%d\n", argc, (int)ac);
@@ -694,7 +717,7 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
     {
         //fprintf(stderr, "count %d\n", count);
         if (at[count].a_type == A_DOLLAR &&
-            at[count].a_w.w_symbol==gensym("@"))
+            at[count].a_w.w_index==DOLLARALL)
         {
             //fprintf(stderr,"found @ count:%d ac:%d argc:%d ac+argc-1:%d\n",
             //    count, ac, argc, ac+argc-1);
@@ -702,7 +725,6 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
             maxnargs = ac;
         }
     }
-
     if (ac <= SMALLMSG)
         mstack = smallstack;
     else
@@ -765,15 +787,21 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
             if (!ac) break;
             if (at->a_type == A_DOLLAR)
             {
+                /* would it make sense to consider $@ here? */
                 if (at->a_w.w_index <= 0 || at->a_w.w_index > argc)
                 {
-                    error("$%d: not enough arguments supplied",
-                            at->a_w.w_index);
+                    binbuf_error(init_target,
+                        "$%d: %s",
+                        at->a_w.w_index,
+                        (at->a_w.w_index == 0 ?
+                            "symbol needed as message destination" :
+                            "not enough arguments supplied"));
                     goto cleanup; 
                 }
                 else if (argv[at->a_w.w_index-1].a_type != A_SYMBOL)
                 {
-                    error("$%d: symbol needed as message destination",
+                    binbuf_error(init_target,
+                        "$%d: symbol needed as message destination",
                         at->a_w.w_index);
                     goto cleanup; 
                 }
@@ -781,10 +809,11 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
             }
             else if (at->a_type == A_DOLLSYM)
             {
-                if (!(s = binbuf_realizedollsym(at->a_w.w_symbol,
+                if (!(s = binbuf_dorealizedollsym(init_target, at->a_w.w_symbol,
                     argc, argv, 0)))
                 {
-                    error("$%s: not enough arguments supplied",
+                    binbuf_error(init_target,
+                        "$%s: not enough arguments supplied",
                         at->a_w.w_symbol->s_name);
                     goto cleanup;
                 }
@@ -792,7 +821,8 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
             else s = atom_getsymbol(at);
             if (!(target = s->s_thing))
             {
-                error("%s: no such object", s->s_name);
+                binbuf_error(init_target,
+                "%s: no such object", s->s_name);
             cleanup:
                 do at++, ac--;
                 while (ac && at->a_type != A_SEMI);
@@ -839,7 +869,7 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
                 *msp = *at;
                 break;
             case A_DOLLAR:
-                if (at->a_w.w_symbol==gensym("@")) 
+                if (at->a_w.w_index==DOLLARALL)
                 { /* JMZ: $@ expansion */
                     int i;
                     //if(msp+argc >= ems) 
@@ -863,25 +893,27 @@ void binbuf_eval(t_binbuf *x, t_pd *target, int argc, t_atom *argv)
                 else if (at->a_w.w_index > 0 && at->a_w.w_index <= argc)
                     *msp = argv[at->a_w.w_index-1];
                 else if (at->a_w.w_index == 0)
-                    SETFLOAT(msp, canvas_getdollarzero());
+                    SETFLOAT(msp, canvas_getdollarzero(init_target));
                 else
                 {
                     if (target == &pd_objectmaker)
                         SETFLOAT(msp, 0);
                     else
                     {
-                        error("$%d: argument number out of range",
+                        binbuf_error(init_target,
+                            "$%d: argument number out of range",
                             at->a_w.w_index);
                         SETFLOAT(msp, 0);
                     }
                 }
                 break;
             case A_DOLLSYM:
-                s9 = binbuf_realizedollsym(at->a_w.w_symbol, argc, argv,
-                    target == &pd_objectmaker);
+                s9 = binbuf_dorealizedollsym(init_target, at->a_w.w_symbol,
+                    argc, argv, target == &pd_objectmaker);
                 if (!s9)
                 {
-                    error("%s: argument number out of range",
+                    binbuf_error(init_target,
+                        "%s: argument number out of range",
                         at->a_w.w_symbol->s_name);
                     SETSYMBOL(msp, at->a_w.w_symbol);
                 }
@@ -925,23 +957,6 @@ broken:
          ATOMS_FREEA(mstack, maxnargs);
 }
 
-static int binbuf_doopen(char *s, int mode)
-{
-    char namebuf[MAXPDSTRING];
-#ifdef MSW
-    mode |= O_BINARY;
-#endif
-    sys_bashfilename(s, namebuf);
-    return (open(namebuf, mode));
-}
-
-static FILE *binbuf_dofopen(char *s, char *mode)
-{
-    char namebuf[MAXPDSTRING];
-    sys_bashfilename(s, namebuf);
-    return (fopen(namebuf, mode));
-}
-
 int binbuf_read(t_binbuf *b, char *filename, char *dirname, int crflag)
 {
     long length;
@@ -956,7 +971,7 @@ int binbuf_read(t_binbuf *b, char *filename, char *dirname, int crflag)
         snprintf(namebuf, MAXPDSTRING-1, "%s", filename);
     namebuf[MAXPDSTRING-1] = 0;
     
-    if ((fd = binbuf_doopen(namebuf, 0)) < 0)
+    if ((fd = sys_open(namebuf, 0)) < 0)
     {
         //fprintf(stderr, "open: ");
         perror(namebuf);
@@ -1059,7 +1074,7 @@ int binbuf_write(t_binbuf *x, char *filename, char *dir, int crflag)
         deleteit = 1;
     }
     
-    if (!(f = binbuf_dofopen(fbuf, "w")))
+    if (!(f = sys_fopen(fbuf, "w")))
     {
         //fprintf(stderr, "open: ");
         sys_unixerror(fbuf);
@@ -1622,10 +1637,16 @@ int binbuf_match(t_binbuf *inbuf, t_binbuf *searchbuf, int wholeword)
                 if (a2->a_type != a1->a_type)
                     goto nomatch;
             }
-            else if (a1->a_type == A_FLOAT || a1->a_type == A_DOLLAR)
+            else if (a1->a_type == A_FLOAT)
+            {
+                if (a2->a_type != a1->a_type ||
+                    a1->a_w.w_float != a2->a_w.w_float)
+                        goto nomatch;
+            }
+            else if (a1->a_type == A_DOLLAR)
             {
                 if (a2->a_type != a1->a_type || 
-                    a1->a_w.w_float != a2->a_w.w_float)
+                    a1->a_w.w_index != a2->a_w.w_index)
                         goto nomatch;
             }
             else if (a1->a_type == A_SYMBOL || a1->a_type == A_DOLLSYM)

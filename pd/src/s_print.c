@@ -89,7 +89,6 @@ static void dologpost(const void *object, const int level, const char *s)
     }
     else
     {
-        char obuf[MAXPDSTRING];
         //sys_vgui("::pdwindow::logpost {%s} %d {%s}\n", 
                  //strnpointerid(obuf, object, MAXPDSTRING), 
                  //level, strnescape(upbuf, s, MAXPDSTRING));
@@ -133,8 +132,6 @@ void logpost(const void *object, const int level, const char *fmt, ...)
 {
     char buf[MAXPDSTRING];
     va_list ap;
-    t_int arg[8];
-    int i;
     va_start(ap, fmt);
     vsnprintf(buf, MAXPDSTRING-1, fmt, ap);
     va_end(ap);
@@ -247,7 +244,7 @@ void pd_error(void *object, const char *fmt, ...)
     {
         /* move this to a function in the GUI so that we can change the
            message without having to recompile */
-        post("... you might be able to track this down from the 'Find Last Error' item in the Edit menu, or by clicking the error link above.");
+        post("... click the link above to track it down, or click the 'Find Last Error' item in the Edit menu.");
         saidit = 1;
     }
 }

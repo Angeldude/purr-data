@@ -3,6 +3,7 @@
 * WARRANTIES, see the file, "LICENSE.txt," in this distribution.  */
 
 #include <stdlib.h>
+#include <string.h>
 #include "m_pd.h"
 #include "m_imp.h"
 
@@ -478,7 +479,6 @@ static t_pdinstance *pdinstance_donew(int useprefix)
     x->pd_bendin_sym = midi_gensym(midiprefix, "#bendin");
     x->pd_touchin_sym = midi_gensym(midiprefix, "#touchin");
     x->pd_polytouchin_sym = midi_gensym(midiprefix, "#polytouchin");
-    x->pd_midiclkin_sym = midi_gensym(midiprefix, "#midiclkin");
     x->pd_midirealtimein_sym = midi_gensym(midiprefix, "#midirealtimein");
     return (x);
 }

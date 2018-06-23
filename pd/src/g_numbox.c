@@ -13,6 +13,12 @@
 #include <math.h>
 #define IEM_GUI_COLOR_EDITED 0xff0000
 
+#if PD_FLOATSIZE == 32
+#define MY_NUMBOX_FLOAT_SPECIFIER "%.6g"
+#elif PD_FLOATSIZE == 64
+#define MY_NUMBOX_FLOAT_SPECIFIER "%.14lg"
+#endif
+
 extern int gfxstub_haveproperties(void *key);
 static void my_numbox_draw_select(t_my_numbox *x, t_glist *glist);
 static void my_numbox_key(void *z, t_floatarg fkey);
@@ -64,7 +70,7 @@ void my_numbox_ftoa(t_my_numbox *x)
     double f=x->x_val;
     int bufsize, is_exp=0, i, idecimal;
 
-    sprintf(x->x_buf, "%g", f);
+    sprintf(x->x_buf, MY_NUMBOX_FLOAT_SPECIFIER, f);
     bufsize = strlen(x->x_buf);
     if(bufsize >= 5)/* if it is in exponential mode */
     {
@@ -231,7 +237,6 @@ static void my_numbox_draw_config(t_my_numbox* x,t_glist* glist)
     char fg[8], bg[8];
     sprintf(fg, "#%6.6x",  x->x_gui.x_fcol);
     sprintf(bg, "#%6.6x",  x->x_gui.x_bcol);
-    int issel = x->x_gui.x_selected == canvas && x->x_gui.x_glist == canvas;
     gui_vmess("gui_numbox_update", "xxsssii",
         canvas,
         x,
@@ -283,13 +288,13 @@ static void my_numbox__clickhook(t_scalehandle *sh, int newstate)
 }
 
 static void my_numbox__motionhook(t_scalehandle *sh,
-                    t_floatarg mouse_x, t_floatarg mouse_y)
+    t_floatarg mouse_x, t_floatarg mouse_y)
 {
     if (sh->h_scale)
     {
         t_my_numbox *x = (t_my_numbox *)(sh->h_master);
-        int dx = (int)mouse_x - sh->h_offset_x,
-            dy = (int)mouse_y - sh->h_offset_y;
+        //int dx = (int)mouse_x - sh->h_offset_x;
+        int dy = (int)mouse_y - sh->h_offset_y;
 
         /* first calculate y */
         int newy = maxi(x->x_gui.x_obj.te_ypix + x->x_gui.x_h +

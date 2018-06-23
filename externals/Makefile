@@ -129,15 +129,24 @@ CXXFLAGS = $(CFLAGS)
 #
 # WARNING!  this MUST be all on one line because the automatic package
 # building scripts rely on it being that way.
-LIB_TARGETS = adaptive arraysize autotune bassemu boids bsaylor comport creb cxc cyclone disis earplug ekext ext13 fftease fluid freeverb ggee hcs iem_ambi iem_bin_ambi iemlib iemgui iemguts iem_adaptfilt iemmatrix iemxmlrpc iem_delay iem_roomsim iem_spec2 iem_tab jasch_lib loaders-hexloader loaders-libdir lyonpotpourri mapping markex maxlib mjlib moocow moonlib motex mrpeach oscx pan pdcontainer pddp pdogg plugin pmpd rjlib sigpack smlib tof unauthorized vbap windowing zexy
+ifeq ($(LIGHT),yes)
+# minimal set of extensions for the "light" build
+LIB_TARGETS = loaders-libdir pddp
+INCREMENTAL = yes
+else
+LIB_TARGETS = adaptive arraysize autotune bassemu boids bsaylor comport creb cxc cyclone disis earplug ekext ext13 fftease fluid freeverb ggee hcs iem_ambi iem_bin_ambi iemlib iemgui iemguts iem_adaptfilt iemmatrix iemxmlrpc iem_delay iem_roomsim iem_spec2 iem_tab jasch_lib loaders-libdir lyonpotpourri mapping markex maxlib mjlib moocow moonlib motex mrpeach oscx pan pdcontainer pddp pdlua pdogg plugin pmpd rjlib sigpack smlib tof unauthorized vbap windowing zexy
+endif
 
 # DISABLED: flatgui
 
 # NEW (IN-PROGRESS): flext
 
 # this is for libraries that don't compile (yet) on all platforms
+ifneq ($(LIGHT),yes)
 ifeq ($(OS_NAME),windows)
-  LIB_TARGETS += gem
+  ifneq ($(INCREMENTAL),yes)
+    LIB_TARGETS += gem
+  endif
 else
   ifeq ($(OS_NAME),darwin)
 # on Mac OS X 10.6/Snow Leopard don't build hid since it needs Carbon
@@ -145,8 +154,9 @@ else
     ifneq ($(shell uname -r | sed 's|10\.[0-9][0-9]*\.[0-9][0-9]*|10|'),10)
       LIB_TARGETS +=
     endif
-  else
-    # GNU/Linux, BSD, IRIX, etc. (we use exported variable INCREMENTAL to avoid rebuilding entire Gem lib that takes a long time to compile)
+  else ifneq ($(LIGHT),yes)
+    # GNU/Linux, BSD, IRIX, etc. (we use exported variable INCREMENTAL to
+    # avoid rebuilding entire Gem lib that takes a long time to compile)
     ifeq ($(INCREMENTAL),yes)
 	LIB_TARGETS += hid pdp iem16
     else
@@ -154,6 +164,7 @@ else
     endif
   endif
 endif
+endif # ifneq ($(LIGHT),yes)
 
 #------------------------------------------------------------------------------#
 
@@ -642,6 +653,9 @@ $(gem_src)/Gem.dll: $(gem_src)/configure
 		CXXFLAGS="-DHAVE_S_STUFF_H" \
 		--host=i686-w64-mingw32 \
 		--without-ALL \
+		--with-jpeg \
+		--with-jpeg-cflags="-I/mingw32/include" \
+		--with-jpeg-libs="-L/mingw32/lib -ljpeg" \
 		--with-ftgl \
 		--with-ftgl-cflags="-I/mingw32/include -I/mingw32/include/freetype2" \
 		--with-ftgl-libs="-L/mingw32/lib -lftgl" \
@@ -937,7 +951,7 @@ iem16_install: iem16
 	install -d $(DESTDIR)$(objectsdir)/$(IEM16_NAME)
 	$(scripts_src)/generate-libdir-metafile.sh $(DESTDIR)$(objectsdir) $(IEM16_NAME) \
 		--author "IOhannes m zmoelnig" \
-		--description "16bit table, array objects for low memory usage" \
+		--description "16bit table/array objects for low memory usage" \
 		--license "GNU GPL" \
 		--version "0.1"
 	install -p $(IEM16_DIR)/*.$(EXTENSION) $(DESTDIR)$(objectsdir)/$(IEM16_NAME)
@@ -1107,29 +1121,6 @@ jasch_lib_clean:
 	-rm -f -- $(JASCH_LIB_OBJECTS:.c=.o)
 	-rm -f -- $(externals_src)/jasch_lib/*/*.bak
 	-rm -f -- $(externals_src)/jasch_lib/*/*.*~
-
-
-#------------------------------------------------------------------------------#
-# LOADERS-HEXLOADER
-LOADERS-HEXLOADER_NAME = hexloader
-LOADERS-HEXLOADER_OBJECTS := $(externals_src)/loaders/hexloader/hexloader.c
-loaders-hexloader: $(LOADERS-HEXLOADER_OBJECTS:.c=.$(EXTENSION))
-	echo $(LOADERS-HEXLOADER_OBJECTS)
-
-loaders-hexloader_install: loaders-hexloader
-	install -d $(DESTDIR)$(objectsdir)/$(LOADERS-HEXLOADER_NAME)
-	install -p $(LOADERS-HEXLOADER_OBJECTS:.c=.$(EXTENSION)) \
-		$(DESTDIR)$(objectsdir)/$(LOADERS-HEXLOADER_NAME)
-	install -p $(externals_src)/loaders/hexloader/README.txt \
-		$(externals_src)/loaders/hexloader/FAQ.txt \
-		$(DESTDIR)$(objectsdir)/$(LOADERS-HEXLOADER_NAME)
-
-loaders-hexloader_clean:
-	-rm -f -- $(LOADERS-HEXLOADER_OBJECTS:.c=.$(EXTENSION))
-	-rm -f -- $(externals_src)/loaders/hexloader/*.o
-	-rm -f -- $(externals_src)/loaders/*.bak
-	-rm -f -- $(externals_src)/loaders/hexloader/*.*~
-
 
 #------------------------------------------------------------------------------#
 # LOADERS-LIBDIR
@@ -1413,6 +1404,22 @@ pddp_install:
 
 pddp_clean:
 	make -C $(externals_src)/pddp clean
+
+
+#------------------------------------------------------------------------------#
+# PDLUA
+
+LUA_CFLAGS = $(shell (pkg-config --cflags lua5.3 || pkg-config --cflags lua5.2 || pkg-config --cflags lua) 2> /dev/null)
+LUA_LIBS = $(shell (pkg-config --libs lua5.3 || pkg-config --libs lua5.2 || pkg-config --libs lua) 2> /dev/null)
+
+pdlua:
+	make -C $(externals_src)/pd-lua LUA_CFLAGS="$(LUA_CFLAGS)" LUA_LIBS="$(LUA_LIBS)" PD_PATH="$(pd_src)" PD_LIB="$(pd_src)/src" CFLAGS="$(CFLAGS)"
+
+pdlua_install:
+	make -C $(externals_src)/pd-lua DESTDIR="$(DESTDIR)" objectsdir="$(objectsdir)" install
+
+pdlua_clean:
+	make -C $(externals_src)/pd-lua clean
 
 
 #------------------------------------------------------------------------------#
@@ -1857,26 +1864,26 @@ zexy_install: zexy
 # add missing aliases
 # can't do these on Windows because FAT, NTFS don't support these chars in filenames
 # on Windows, these are faked in by loading them as libs
-ifneq ($(OS_NAME),windows)
-	test -e $(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/..$(EXTENSION) || \
-		ln -s 0x2e.$(EXTENSION) \
-			$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/..$(EXTENSION)
-	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/&&~.$(EXTENSION)' || \
-		ln -s 0x260x260x7e.$(EXTENSION) \
-			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/&&~.$(EXTENSION)'
-	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/<~.$(EXTENSION)' || \
-		ln -s 0x3c0x7e.$(EXTENSION) \
-			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/<~.$(EXTENSION)'
-	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/==~.$(EXTENSION)' || \
-		ln -s 0x3d0x3d0x7e.$(EXTENSION) \
-			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/==~.$(EXTENSION)'
-	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/>~.$(EXTENSION)' || \
-		ln -s 0x3e0x7e.$(EXTENSION) \
-			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/>~.$(EXTENSION)'
-	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/||~.$(EXTENSION)' || \
-		ln -s 0x7c0x7c0x7e.$(EXTENSION) \
-			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/||~.$(EXTENSION)'
-endif
+#ifneq ($(OS_NAME),windows)
+#	test -e $(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/..$(EXTENSION) || \
+#		ln -s 0x2e.$(EXTENSION) \
+#			$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/..$(EXTENSION)
+#	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/&&~.$(EXTENSION)' || \
+#		ln -s 0x260x26_tilde.$(EXTENSION) \
+#			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/&&~.$(EXTENSION)'
+#	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/<~.$(EXTENSION)' || \
+#		ln -s 0x3c_tilde.$(EXTENSION) \
+#			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/<~.$(EXTENSION)'
+#	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/==~.$(EXTENSION)' || \
+#		ln -s 0x3d0x3d_tilde.$(EXTENSION) \
+#			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/==~.$(EXTENSION)'
+#	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/>~.$(EXTENSION)' || \
+#		ln -s 0x3e_tilde.$(EXTENSION) \
+#			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/>~.$(EXTENSION)'
+#	test -e '$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/||~.$(EXTENSION)' || \
+#		ln -s 0x7c0x7c_tilde.$(EXTENSION) \
+#			'$(DESTDIR)$(objectsdir)/$(ZEXY_NAME)/||~.$(EXTENSION)'
+#endif
 
 zexy_clean:
 	cd $(externals_src)/zexy && ./autogen.sh
